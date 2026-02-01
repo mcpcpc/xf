@@ -1,0 +1,633 @@
+.\" xf.1 - man page for xf, the intent-driven terminal text editor
+.\" Copyright (c) 2026, Michael Czigler
+.\" BSD 3-Clause License
+.\"
+.TH XF 1 "January 2026" "xf" "User Commands"
+.\"
+.\" ===== NAME =====
+.\"
+.SH NAME
+xf \- intent-driven terminal text editor
+.\"
+.\" ===== SYNOPSIS =====
+.\"
+.SH SYNOPSIS
+.B xf
+.RI [ options ]
+.IR file " ..."
+.br
+.B xf
+.B \-\-batch
+.I script
+.IR file " ..."
+.br
+.B xf
+.B \-\-replay
+.I script
+.IR file " ..."
+.\"
+.\" ===== DESCRIPTION =====
+.\"
+.SH DESCRIPTION
+.B xf
+is a terminal-based text editor that takes a radically
+different approach to editing: instead of navigating with a cursor, you
+.B declare your intent
+by describing
+.I what
+text you want to modify and
+.I what
+you want to do with it.
+.PP
+Unlike traditional editors that rely on cursor movement and modal editing,
+.B xf
+is built on these core principles:
+.TP
+.B No cursor
+There is no concept of "current position" or cursor movement. All operations
+act on explicit selections derived from declarative queries.
+.TP
+.B Selection-first editing
+Users first describe the text they intend to operate on (e.g., "lines matching
+TODO", "functions containing malloc"). Selections are named, composable, and
+refinable.
+.TP
+.B Transactional editing
+No command mutates text immediately. Each operation computes a selection,
+applies a transformation, and stages the changes. Changes are only written to
+disk when explicitly committed.
+.TP
+.B Diff-centric feedback
+The primary visual output is a unified diff showing proposed changes. Users
+evaluate edits by their effects, not by cursor position.
+.TP
+.B Reproducibility
+Command history can be saved and replayed. Editing sessions are deterministic
+and scriptable.
+.PP
+.B xf
+is not a Vim or Emacs alternative. It is a different interaction model
+optimized for correctness, reproducibility, and large-scale transformations.
+.\"
+.\" ===== OPTIONS =====
+.\"
+.SH OPTIONS
+.TP
+.BI \-\-batch " script"
+Execute commands from
+.I script
+and exit without entering interactive mode. This is useful for automated
+refactoring and scripting. Each command in the script is executed in sequence,
+and
+.B xf
+exits after the last command.
+.TP
+.BI \-\-replay " script"
+Execute commands from
+.I script
+and then enter interactive mode. This is useful for setting up an initial
+state before manual editing.
+.TP
+.I file ...
+One or more files to edit. Multiple files are loaded into a unified buffer,
+and commands operate across all files simultaneously. On commit, changes are
+written back to each original file.
+.\"
+.\" ===== COMMANDS =====
+.\"
+.SH COMMANDS
+.B xf
+uses a declarative command language entered at an interactive prompt. Commands
+describe intent rather than keystrokes. All commands are case-sensitive.
+.\"
+.\" ----- Selection Commands -----
+.\"
+.SS Selection Commands
+Selection commands define the text that subsequent transformation commands
+will operate on. Selections can be named for later reference.
+.TP
+.B select lines
+Select all lines in the buffer.
+.TP
+.BI "select lines matching """ pattern """"
+Select lines containing the literal substring
+.IR pattern .
+.TP
+.BI "select lines matching /" regex /
+Select lines matching the POSIX Extended Regular Expression
+.IR regex .
+.TP
+.B select paragraphs
+Select all paragraph blocks. A paragraph is a contiguous group of non-empty
+lines separated by one or more blank lines.
+.TP
+.BI "select paragraphs containing """ pattern """"
+Select only paragraphs that contain the substring
+.IR pattern .
+.TP
+.B select blocks
+Select indentation-based blocks. A block is a contiguous group of lines that
+starts at column 0 (no leading whitespace) and includes all indented lines
+that follow.
+.TP
+.BI "select blocks containing """ pattern """"
+Select only blocks that contain the substring
+.IR pattern .
+.TP
+.B select functions
+Select C-style function definitions using heuristic detection. This identifies
+function definitions based on common C syntax patterns.
+.TP
+.BI "select functions containing """ pattern """"
+Select only functions that contain the substring
+.IR pattern .
+.TP
+.BI "select ... as " name
+Any select command can end with
+.BI "as " name
+to save the selection with a name for later reference. Named selections can
+be viewed with the
+.B selections
+command.
+.\"
+.\" ----- Refinement Commands -----
+.\"
+.SS Refinement Commands
+Refinement commands narrow down an existing selection by applying additional
+filters. They operate on the current selection and produce a new, smaller
+selection.
+.TP
+.BI "refine containing """ pattern """"
+Keep only ranges that contain the substring
+.IR pattern .
+Ranges that do not contain the pattern are removed from the selection.
+.TP
+.BI "refine containing /" regex /
+Keep only ranges that match the POSIX Extended Regular Expression
+.IR regex .
+.TP
+.BI "refine excluding """ pattern """"
+Remove ranges that contain the substring
+.IR pattern .
+Only ranges without the pattern remain in the selection.
+.TP
+.BI "refine excluding /" regex /
+Remove ranges that match the POSIX Extended Regular Expression
+.IR regex .
+.TP
+.B refine excluding comments
+Remove ranges that consist entirely of comments. This uses heuristic detection
+of C-style comments (both
+.B //
+line comments and
+.B /* */
+block comments).
+.\"
+.\" ----- Transformation Commands -----
+.\"
+.SS Transformation Commands
+Transformation commands modify the selected text. All transformations are
+.B staged
+and must be
+.B committed
+to take effect. Use
+.B preview
+to see staged changes before committing.
+.TP
+.BI "replace """ old """ with """ new """"
+Replace all occurrences of substring
+.I old
+with
+.I new
+within the selected lines. Both single and double quotes are supported.
+.TP
+.B delete
+Delete all selected lines. The lines are removed from the buffer.
+.TP
+.BI "insert """ text """ before"
+Insert a line containing
+.I text
+before each selected range.
+.TP
+.BI "insert """ text """ after"
+Insert a line containing
+.I text
+after each selected range.
+.TP
+.BI "move before " line
+Move all selected lines to appear before line number
+.IR line .
+.TP
+.BI "move after " line
+Move all selected lines to appear after line number
+.IR line .
+.\"
+.\" ----- Preview and Commit Commands -----
+.\"
+.SS Preview and Commit Commands
+These commands control the staging and application of changes.
+.TP
+.B preview
+Display a unified diff of all staged changes. The diff shows exactly what
+will change when
+.B commit
+is executed. If there are no staged changes, a message is displayed.
+.TP
+.B commit
+Apply all staged changes to disk. Each modified file is written with the
+updated content. After committing, the staged changes become the new baseline.
+.TP
+.B abort
+Discard all staged changes without writing to disk. This also clears the
+current selection.
+.\"
+.\" ----- History and Replay Commands -----
+.\"
+.SS History and Replay Commands
+These commands manage command history for reproducibility and scripting.
+.TP
+.B history
+Display all commands executed in the current session, numbered sequentially.
+.TP
+.BI "save " file
+Save the command history to
+.IR file .
+The saved file can be used with
+.B \-\-batch
+or
+.B \-\-replay
+options, or with the
+.B replay
+command.
+.TP
+.BI "replay " file
+Execute commands from
+.IR file .
+Each line in the file is executed as a command. Lines starting with
+.B #
+are treated as comments and ignored.
+.\"
+.\" ----- Utility Commands -----
+.\"
+.SS Utility Commands
+.TP
+.B selections
+List all named selections with their range and line counts.
+.TP
+.BR help ", " ?
+Display a summary of available commands.
+.TP
+.BR quit ", " q
+Exit
+.BR xf .
+.B Warning:
+.B xf
+does not warn about uncommitted changes. Use
+.B preview
+before quitting to verify you have committed all desired changes.
+.\"
+.\" ===== PATTERNS =====
+.\"
+.SH PATTERNS
+.B xf
+supports two types of patterns for matching text:
+.TP
+.BI """" pattern """"
+.B Substring matching.
+Matches any line or range containing the literal string
+.IR pattern .
+Both single and double quotes are supported. This is faster but less flexible
+than regex matching.
+.TP
+.BI / regex /
+.B Regular expression matching.
+Matches using POSIX Extended Regular Expressions (ERE). Common regex features
+include:
+.RS
+.IP \(bu 2
+.B .
+\- Match any single character
+.IP \(bu 2
+.B *
+\- Match zero or more of the preceding element
+.IP \(bu 2
+.B +
+\- Match one or more of the preceding element
+.IP \(bu 2
+.B ?
+\- Match zero or one of the preceding element
+.IP \(bu 2
+.B ^
+\- Match start of line
+.IP \(bu 2
+.B $
+\- Match end of line
+.IP \(bu 2
+.B [abc]
+\- Match any character in the set
+.IP \(bu 2
+.B [^abc]
+\- Match any character not in the set
+.IP \(bu 2
+.B (a|b)
+\- Match either a or b
+.IP \(bu 2
+.B [[:space:]]
+\- Match whitespace (POSIX character class)
+.IP \(bu 2
+.B [[:alpha:]]
+\- Match alphabetic characters
+.IP \(bu 2
+.B [[:digit:]]
+\- Match digits
+.RE
+.\"
+.\" ===== SCRIPT FILES =====
+.\"
+.SH SCRIPT FILES
+Script files are plain text files containing one command per line. They can
+be used with the
+.BR \-\-batch ,
+.BR \-\-replay ,
+and
+.B replay
+commands.
+.PP
+Lines starting with
+.B #
+are treated as comments and ignored. Empty lines are also ignored.
+.PP
+Example script file
+.RB ( refactor.xf ):
+.PP
+.RS
+.nf
+# Refactor script: replace malloc with xmalloc
+# in all functions that use memory allocation
+
+select functions containing "malloc"
+replace "malloc" with "xmalloc"
+commit
+
+# Remove debug statements
+select lines matching "DEBUG"
+delete
+commit
+.fi
+.RE
+.\"
+.\" ===== MULTI-FILE EDITING =====
+.\"
+.SH MULTI-FILE EDITING
+When multiple files are specified on the command line,
+.B xf
+loads them into a unified buffer. Each file's content is concatenated, with
+.B xf
+tracking the original file boundaries.
+.PP
+Commands operate across all loaded files simultaneously. For example,
+.B select lines matching "TODO"
+will find matching lines in all files.
+.PP
+On
+.BR commit ,
+changes are written back to each original file, preserving the file boundaries.
+The commit output shows each file separately:
+.PP
+.RS
+.nf
+> commit
+xf: committed 200 lines to src/main.c
+xf: committed 150 lines to src/utils.c
+xf: committed 300 lines to src/parser.c
+.fi
+.RE
+.\"
+.\" ===== WORKFLOW =====
+.\"
+.SH WORKFLOW
+A typical
+.B xf
+editing session follows this pattern:
+.IP 1. 4
+.B Select
+the text you want to work with using a selection command.
+.IP 2. 4
+.B Refine
+the selection if needed to narrow it down further.
+.IP 3. 4
+.B Transform
+the selected text using replace, delete, insert, or move.
+.IP 4. 4
+.B Preview
+the staged changes to verify they are correct.
+.IP 5. 4
+.B Commit
+to apply the changes to disk, or
+.B abort
+to discard them.
+.IP 6. 4
+Repeat as needed, then
+.B quit
+to exit.
+.PP
+Multiple transformations can be staged before a single commit. The
+.B preview
+command shows all staged changes as a combined diff.
+.\"
+.\" ===== EXAMPLES =====
+.\"
+.SH EXAMPLES
+.SS Basic Session
+.PP
+.RS
+.nf
+$ xf myfile.c
+xf: loaded myfile.c (156 lines)
+
+> select lines matching "TODO"
+xf: 5 range(s), 5 line(s) selected
+
+> replace "TODO" with "DONE"
+xf: 5 replacement(s) staged
+
+> preview
+--- original
++++ modified
+@@ -10,1 +10,1 @@
+-// TODO: implement error handling
++// DONE: implement error handling
+...
+
+> commit
+xf: committed 156 lines to myfile.c
+
+> quit
+.fi
+.RE
+.SS Batch Mode
+.PP
+.RS
+.nf
+$ xf --batch refactor.xf src/*.c
+.fi
+.RE
+.SS Regex Patterns
+.PP
+.RS
+.nf
+> select lines matching /TODO|FIXME/
+> select lines matching /^[[:space:]]+if[[:space:]]*\\(/
+.fi
+.RE
+.PP
+See
+.B USAGE.md
+for comprehensive tutorials and additional examples.
+.\"
+.\" ===== DIAGNOSTICS =====
+.\"
+.SH DIAGNOSTICS
+.B xf
+reports errors and status messages with the following prefixes:
+.TP
+.B xf:
+Informational message (file loaded, selection made, changes staged, etc.)
+.TP
+.B xf: error:
+An error occurred (file not found, invalid command, etc.)
+.PP
+Common diagnostic messages:
+.TP
+.B "xf: no selection"
+A transformation command was issued without first creating a selection.
+Use a
+.B select
+command before transformation commands.
+.TP
+.B "xf: no staged changes"
+The
+.B preview
+or
+.B commit
+command was issued when no changes are staged.
+Use a transformation command (replace, delete, insert, move) first.
+.TP
+.B "xf: invalid regex pattern"
+The regular expression in a
+.B /regex/
+pattern has a syntax error. Check the regex syntax and try again.
+.TP
+.B "xf: 0 range(s), 0 line(s) selected"
+The selection or refinement matched nothing. Try a different pattern or
+start with a broader selection.
+.\"
+.\" ===== ENVIRONMENT =====
+.\"
+.SH ENVIRONMENT
+.B xf
+does not currently use any environment variables.
+.\"
+.\" ===== FILES =====
+.\"
+.SH FILES
+.TP
+.I ~/.qi_history
+Not currently implemented. Future versions may save command history here.
+.TP
+.I *.xf
+By convention, script files for
+.B xf
+use the
+.B .xf
+extension, but any text file can be used.
+.\"
+.\" ===== EXIT STATUS =====
+.\"
+.SH EXIT STATUS
+.TP
+.B 0
+Successful execution.
+.TP
+.B 1
+An error occurred (e.g., file not found, invalid arguments).
+.\"
+.\" ===== CAVEATS =====
+.\"
+.SH CAVEATS
+.IP \(bu 2
+.B xf
+does not warn about uncommitted changes when quitting. Always use
+.B preview
+before
+.B quit
+to ensure you have committed all desired changes.
+.IP \(bu 2
+The
+.B select functions
+command uses heuristic detection for C-style functions and may not correctly
+identify all function definitions in complex or non-standard code.
+.IP \(bu 2
+.B xf
+loads entire files into memory. Very large files (exceeding available RAM)
+may cause performance issues or failures.
+.IP \(bu 2
+Regular expressions use POSIX Extended Regular Expression syntax, which differs
+slightly from Perl-compatible regular expressions (PCRE) used by many modern
+tools.
+.IP \(bu 2
+Undo is currently not supported in the traditional sense. Use
+.B abort
+to discard staged changes, or reload the file to revert committed changes.
+.\"
+.\" ===== BUGS =====
+.\"
+.SH BUGS
+Report bugs at:
+.UR https://github.com/youruser/xf/issues
+.UE
+.\"
+.\" ===== SEE ALSO =====
+.\"
+.SH SEE ALSO
+.BR sed (1),
+.BR awk (1),
+.BR ed (1),
+.BR vim (1),
+.BR regex (7)
+.PP
+The full documentation for
+.B xf
+is available in the USAGE.md file distributed with the source code.
+.\"
+.\" ===== STANDARDS =====
+.\"
+.SH STANDARDS
+.B xf
+is written in POSIX C99 (ISO/IEC 9899:1999 with POSIX.1-2008 extensions) and
+should work on any POSIX-compatible system including Linux, macOS, and BSD
+variants.
+.PP
+Regular expressions follow the POSIX Extended Regular Expression (ERE) standard
+as documented in
+.BR regex (7).
+.\"
+.\" ===== HISTORY =====
+.\"
+.SH HISTORY
+.B xf
+was created as an experiment in rethinking text editing as intent declaration
+rather than cursor navigation. It prioritizes correctness and reproducibility
+over raw editing speed.
+.\"
+.\" ===== AUTHORS =====
+.\"
+.SH AUTHORS
+.B xf
+was written by
+.B Michael Czigler .
+.\"
+.\" ===== LICENSE =====
+.\"
+.SH LICENSE
+BSD 3-Clause License. See the LICENSE file for full terms.
