@@ -84,9 +84,9 @@ print_selections(const struct selection_table *tbl)
 	printf("xf: %zu named selection(s)\n", tbl->count);
 	for (i = 0; i < tbl->count; i++) {
 		printf("  [%s] %zu range(s), %zu line(s)\n",
-		       tbl->slots[i].name,
-		       tbl->slots[i].nranges,
-		       selection_line_count(&tbl->slots[i]));
+			tbl->slots[i].name,
+			tbl->slots[i].nranges,
+			selection_line_count(&tbl->slots[i]));
 	}
 }
 
@@ -250,7 +250,7 @@ struct editor_state {
 
 /* Forward declaration */
 static int execute_command(struct editor_state *st, const char *line,
-			   int log_cmd);
+		int log_cmd);
 
 static int
 replay_file(struct editor_state *st, const char *path)
@@ -460,7 +460,7 @@ print_usage(void)
 
 static int
 process_files(const char **files, size_t nfiles, const char *replay_path,
-	      const char *batch_path)
+		const char *batch_path)
 {
 	struct editor_state st;
 	char *line = NULL;
@@ -485,14 +485,14 @@ process_files(const char **files, size_t nfiles, const char *replay_path,
 			return 1;
 		}
 		printf("xf: loaded %zu files (%zu lines total)\n",
-		       nfiles, st.orig.nlines);
+			nfiles, st.orig.nlines);
 		for (i = 0; i < st.orig.nregions; i++) {
 			size_t len = st.orig.regions[i].end_line -
-				     st.orig.regions[i].start_line + 1;
+				st.orig.regions[i].start_line + 1;
 			printf("  %s (%zu lines, lines %zu-%zu)\n",
-			       st.orig.regions[i].filename, len,
-			       st.orig.regions[i].start_line + 1,
-			       st.orig.regions[i].end_line + 1);
+				st.orig.regions[i].filename, len,
+				st.orig.regions[i].start_line + 1,
+				st.orig.regions[i].end_line + 1);
 		}
 	}
 
@@ -506,11 +506,9 @@ process_files(const char **files, size_t nfiles, const char *replay_path,
 		return 1;
 	}
 
-	/* Handle --replay */
 	if (replay_path != NULL)
 		replay_file(&st, replay_path);
 
-	/* Handle --batch */
 	if (batch_path != NULL) {
 		replay_file(&st, batch_path);
 		st.running = 0;
@@ -549,7 +547,6 @@ main(int argc, char *argv[])
 	int i;
 	int rc = 0;
 
-	/* Parse arguments */
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--replay") == 0) {
 			if (i + 1 >= argc) {
