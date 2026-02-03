@@ -640,6 +640,21 @@ xf: committed 600 lines to api.c
 
 This targets exactly the right code: public functions that return errors.
 
+**With sed/awk?** There's no practical equivalent. You'd need to:
+
+```bash
+# Step 1: Find function boundaries (sed can't do this reliably)
+# Step 2: Filter out static functions (requires parsing C syntax)
+# Step 3: Find "return -1" only within those functions (requires state tracking)
+# Step 4: Preview changes before applying (sed -i gives no preview)
+
+# The "best" attempt—fragile and wrong:
+awk '/^[a-z].*\(.*\).*\{/,/^\}/' api.c | grep -l "return -1" | ...
+# This breaks on multi-line signatures, nested braces, comments, etc.
+```
+
+sed and awk have no concept of "function scope"—they process line-by-line or with fragile pattern ranges. xf understands structure.
+
 ### Codebase-Wide API Migration
 
 **Goal**: Replace deprecated API across an entire project, but only in actual code (not comments or strings).
@@ -686,6 +701,25 @@ xf: 26 replacement(s) staged
 xf: committed 45 files
 ```
 
+**With sed?** A nightmare of nested conditions:
+
+```bash
+# Attempt to skip comments and strings while replacing:
+sed -i 's/pthread_create/thread_pool_spawn/g' src/*.c
+
+# Oops—that changed comments and strings too. Try again:
+sed -i '/^[[:space:]]*\/\//!s/pthread_create/thread_pool_spawn/g' src/*.c
+
+# Still wrong—doesn't handle /* */ comments or strings.
+# Need something like:
+sed -i '/^[[:space:]]*\/\//!{/\/\*/,/\*\//!{/"[^"]*pthread_create[^"]*"/!s/pthread_create/thread_pool_spawn/g}}' src/*.c
+
+# This is unreadable AND still broken (multi-line comments, escaped quotes, etc.)
+# And there's no preview—changes go straight to disk.
+```
+
+xf's `refine excluding comments` understands C comment syntax. sed just sees text.
+
 ### Function-Level Transformations
 
 **Goal**: Add error checking to all malloc calls inside a specific function.
@@ -727,6 +761,30 @@ xf: 3 line(s) inserted
 xf: committed 503 lines to memory.c
 ```
 
+**With sed?** Impossible to scope correctly:
+
+```bash
+# sed has no concept of "inside function parse_input"
+# You'd need to track brace nesting, which sed can't do:
+sed '/parse_input/,/^}/s/malloc/& ; if (!ptr) return -1/' memory.c
+
+# This is wrong—it matches from "parse_input" to the FIRST "}" 
+# which might be an if-statement, not the function end.
+# It also mangles the syntax instead of inserting a new line.
+
+# awk can track braces, but it's still fragile:
+awk '
+  /parse_input.*\{/ { in_func=1; depth=1 }
+  in_func && /\{/ { depth++ }
+  in_func && /\}/ { depth--; if(depth==0) in_func=0 }
+  in_func && /malloc/ { print; print "    if (!ptr) return -1;"; next }
+  { print }
+' memory.c > memory.c.tmp && mv memory.c.tmp memory.c
+
+# 8 lines of awk vs. 3 xf commands. And the awk version breaks on
+# braces in strings, comments, or multi-line expressions.
+```
+
 ### Paragraph-Aware Documentation Edits
 
 **Goal**: Find and update specific documentation sections.
@@ -760,6 +818,24 @@ xf: 4 line(s) inserted
 > commit
 xf: committed 804 lines to docs/api.md
 ```
+
+**With sed?** Paragraphs require blank-line detection with context:
+
+```bash
+# Insert before paragraphs containing "deprecated"
+# sed processes lines, not paragraphs. You need awk:
+awk -v RS='\n\n' -v ORS='\n\n' '
+  /deprecated/ { print "**WARNING: DEPRECATED**\n" $0; next }
+  { print }
+' docs/api.md > tmp && mv tmp docs/api.md
+
+# This mostly works, but:
+# - Destroys original blank line patterns
+# - No preview before overwriting
+# - Fragile with varying newline counts
+```
+
+xf treats paragraphs as first-class units—no regex gymnastics required.
 
 ### Indentation-Aware Block Operations
 
@@ -819,6 +895,26 @@ xf: 8 line(s) inserted
 > commit
 xf: committed files
 ```
+
+**With sed/awk?** This requires semantic understanding:
+
+```bash
+# Find functions containing malloc but NOT containing null checks?
+# sed/awk can't do this—they'd need to:
+# 1. Identify function boundaries (requires brace-matching)
+# 2. Check if "malloc" appears anywhere in the function
+# 3. Check if null-check patterns DON'T appear
+# 4. Only modify functions matching both conditions
+
+# grep can find candidates, but can't scope to functions:
+grep -l "malloc" src/*.c | xargs grep -L "if (!.*)" 
+# Wrong—this checks whole FILES, not individual FUNCTIONS
+
+# A "working" solution requires a real parser or 50+ lines of awk
+# that will still break on edge cases.
+```
+
+xf's selection composition makes this a 4-command operation.
 
 ### Reproducible Transformations
 
