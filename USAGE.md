@@ -11,7 +11,9 @@ A comprehensive guide to using **xf**, the intent-driven terminal text editor.
 3. [Batch Mode and Scripting](#batch-mode-and-scripting)
 4. [Multi-File Editing](#multi-file-editing)
 5. [Tips and Best Practices](#tips-and-best-practices)
-6. [Troubleshooting](#troubleshooting)
+6. [Why Staging Matters](#why-staging-matters)
+7. [The Real Power of xf](#the-real-power-of-xf)
+8. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -429,6 +431,520 @@ xf: 50 replacement(s) staged
 > abort
 xf: changes discarded
 ```
+
+---
+
+## Why Staging Matters
+
+The staging model isn't just a safety feature—it fundamentally changes how you approach text editing. Here's why it matters:
+
+### Catching Unintended Matches
+
+**The Problem**: Pattern matching often catches more than you expect.
+
+```
+$ xf database.c
+xf: loaded database.c (800 lines)
+
+> select lines matching "id"
+xf: 47 range(s), 47 line(s) selected
+     1: |     int user_id = get_user_id();
+     2: |     validate_credentials(user_id);
+     3: |     // Consider adding UUID support
+     4: |     void *ptr = malloc(sizeof(id_t));
+     5: |     printf("Invalid input provided\n");
+  ... (42 more lines)
+
+> replace "id" with "identifier"
+xf: 52 replacement(s) staged
+
+> preview
+--- original
++++ modified
+@@ -15,1 +15,1 @@
+-    int user_id = get_user_id();
++    int user_identifier = get_user_identifier();
+@@ -42,1 +42,1 @@
+-    // Consider adding UUID support
++    // Considentifierer adding UUidentifier support
+@@ -89,1 +89,1 @@
+-    printf("Invalid input provided\n");
++    printf("Invalidentifier input providentifiered\n");
+...
+
+# Disaster avoided! "id" appears inside many words
+> abort
+xf: changes discarded
+
+# More precise approach:
+> select lines matching "user_id"
+xf: 12 range(s), 12 line(s) selected
+
+> replace "user_id" with "user_identifier"
+xf: 15 replacement(s) staged
+
+> preview
+--- original
++++ modified
+@@ -15,1 +15,1 @@
+-    int user_id = get_user_id();
++    int user_identifier = get_user_identifier();
+...
+
+> commit
+xf: committed 800 lines to database.c
+```
+
+Without staging, the first replace would have corrupted your file.
+
+### Scope Creep in Refactoring
+
+**The Problem**: A "simple" rename touches more than expected.
+
+```
+$ xf config.c
+xf: loaded config.c (400 lines)
+
+> select functions
+xf: 18 range(s), 380 line(s) selected
+
+> refine containing "config"
+xf: 8 range(s), 120 line(s) selected
+
+> replace "config" with "settings"
+xf: 24 replacement(s) staged
+
+> preview
+--- original
++++ modified
+@@ -10,1 +10,1 @@
+-void load_config(const char *path)
++void load_settings(const char *path)
+@@ -15,1 +15,1 @@
+-    config_t *cfg = parse_config(path);
++    settings_t *cfg = parse_settings(path);
+@@ -45,1 +45,1 @@
+-    // TODO: reconfigure logging
++    // TODO: resettingsure logging
+...
+
+# Wait—"reconfigure" contains "config" too!
+> abort
+xf: changes discarded
+
+# Use word boundaries in regex:
+> select functions containing "config"
+xf: 8 range(s), 120 line(s) selected
+
+> replace /\bconfig\b/ with "settings"
+xf: 18 replacement(s) staged
+
+> preview
+--- original
++++ modified
+@@ -10,1 +10,1 @@
+-void load_config(const char *path)
++void load_settings(const char *path)
+@@ -45,1 +45,1 @@
+     // TODO: reconfigure logging
+...
+
+# "reconfigure" is untouched now
+> commit
+xf: committed 400 lines to config.c
+```
+
+### Multi-File Safety Net
+
+**The Problem**: Changes across multiple files amplify risk.
+
+```
+$ xf src/*.c
+xf: loaded 12 files (4500 lines total)
+
+> select lines matching "ERROR_CODE"
+xf: 89 range(s), 89 line(s) selected
+
+> replace "ERROR_CODE" with "ERR_CODE"
+xf: 89 replacement(s) staged
+
+> preview
+--- original
++++ modified
+@@ -25,1 +25,1 @@ src/main.c
+-    return ERROR_CODE_INVALID;
++    return ERR_CODE_INVALID;
+@@ -102,1 +102,1 @@ src/parser.c
+-#define ERROR_CODE_BASE 1000
++#define ERR_CODE_BASE 1000
+...
+
+# 89 changes across 12 files—review carefully before committing
+> commit
+xf: committed 350 lines to src/main.c
+xf: committed 400 lines to src/parser.c
+...
+```
+
+Imagine if those 89 changes went straight to disk without review.
+
+---
+
+## The Real Power of xf
+
+The examples so far show simple search-and-replace. But xf's true strength lies in **structural awareness** combined with **selection composition**—capabilities that make complex transformations safe and precise.
+
+### Surgical Code Modification
+
+**Goal**: Update only public API functions, leaving internal helpers alone.
+
+```
+$ xf api.c
+xf: loaded api.c (600 lines)
+
+> select functions as all_funcs
+xf: [all_funcs] 25 range(s), 580 line(s) selected
+
+# Exclude static (internal) functions
+> refine excluding /^static/
+xf: 12 range(s), 290 line(s) selected
+
+# Keep only functions that return error codes
+> refine containing "return -1" as public_error_funcs
+xf: [public_error_funcs] 5 range(s), 85 line(s) selected
+     1: | int api_connect(const char *host) {
+        |     ...
+        |     return -1;
+        | }
+     2: | int api_send(int fd, const void *data) {
+        |     ...
+        |     return -1;
+        | }
+  ... (3 more functions)
+
+# Now add proper error logging to just these functions
+> replace "return -1" with "log_error(__func__); return -1"
+xf: 8 replacement(s) staged
+
+> preview
+--- original
++++ modified
+@@ -45,1 +45,1 @@
+-        return -1;
++        log_error(__func__); return -1;
+...
+
+> commit
+xf: committed 600 lines to api.c
+```
+
+This targets exactly the right code: public functions that return errors.
+
+**With sed/awk?** There's no practical equivalent. You'd need to:
+
+```bash
+# Step 1: Find function boundaries (sed can't do this reliably)
+# Step 2: Filter out static functions (requires parsing C syntax)
+# Step 3: Find "return -1" only within those functions (requires state tracking)
+# Step 4: Preview changes before applying (sed -i gives no preview)
+
+# The "best" attempt—fragile and wrong:
+awk '/^[a-z].*\(.*\).*\{/,/^\}/' api.c | grep -l "return -1" | ...
+# This breaks on multi-line signatures, nested braces, comments, etc.
+```
+
+sed and awk have no concept of "function scope"—they process line-by-line or with fragile pattern ranges. xf understands structure.
+
+### Codebase-Wide API Migration
+
+**Goal**: Replace deprecated API across an entire project, but only in actual code (not comments or strings).
+
+```
+$ xf src/*.c include/*.h
+xf: loaded 45 files (12000 lines total)
+
+> select lines matching "pthread_create"
+xf: 34 range(s), 34 line(s) selected
+     1: |     pthread_create(&thread, NULL, worker, arg);
+     2: |     // Old: pthread_create is deprecated
+     3: |     ret = pthread_create(&t, &attr, handler, ctx);
+     4: |     printf("Using pthread_create\n");
+  ... (30 more lines)
+
+# Remove comments—we don't want to change documentation
+> refine excluding comments
+xf: 28 range(s), 28 line(s) selected
+
+# Remove string literals—don't change log messages
+> refine excluding /".*pthread_create.*"/
+xf: 26 range(s), 26 line(s) selected
+
+# Now we have only actual pthread_create calls
+> replace "pthread_create" with "thread_pool_spawn"
+xf: 26 replacement(s) staged
+
+> preview
+--- original
++++ modified
+@@ -89,1 +89,1 @@ src/worker.c
+-    pthread_create(&thread, NULL, worker, arg);
++    thread_pool_spawn(&thread, NULL, worker, arg);
+@@ -45,1 +45,1 @@ src/handler.c
+     // Old: pthread_create is deprecated   ← unchanged
+-    ret = pthread_create(&t, &attr, handler, ctx);
++    ret = thread_pool_spawn(&t, &attr, handler, ctx);
+@@ -102,1 +102,1 @@ src/main.c
+     printf("Using pthread_create\n");      ← unchanged
+...
+
+> commit
+xf: committed 45 files
+```
+
+**With sed?** A nightmare of nested conditions:
+
+```bash
+# Attempt to skip comments and strings while replacing:
+sed -i 's/pthread_create/thread_pool_spawn/g' src/*.c
+
+# Oops—that changed comments and strings too. Try again:
+sed -i '/^[[:space:]]*\/\//!s/pthread_create/thread_pool_spawn/g' src/*.c
+
+# Still wrong—doesn't handle /* */ comments or strings.
+# Need something like:
+sed -i '/^[[:space:]]*\/\//!{/\/\*/,/\*\//!{/"[^"]*pthread_create[^"]*"/!s/pthread_create/thread_pool_spawn/g}}' src/*.c
+
+# This is unreadable AND still broken (multi-line comments, escaped quotes, etc.)
+# And there's no preview—changes go straight to disk.
+```
+
+xf's `refine excluding comments` understands C comment syntax. sed just sees text.
+
+### Function-Level Transformations
+
+**Goal**: Add error checking to all malloc calls inside a specific function.
+
+```
+$ xf memory.c
+xf: loaded memory.c (500 lines)
+
+> select functions containing "parse_input" as target_func
+xf: [target_func] 1 range(s), 45 line(s) selected
+     1: | int parse_input(const char *input) {
+        |     char *buf = malloc(strlen(input) + 1);
+        |     token_t *tok = malloc(sizeof(token_t));
+        |     ...
+        | }
+
+# Now select just the malloc lines within this function
+> refine containing "malloc"
+xf: 3 range(s), 3 line(s) selected
+     1: |     char *buf = malloc(strlen(input) + 1);
+     2: |     token_t *tok = malloc(sizeof(token_t));
+     3: |     node_t *n = malloc(sizeof(node_t));
+
+> insert "if (!ptr) return -1;  /* allocation check */" after
+xf: 3 line(s) inserted
+
+> preview
+--- original
++++ modified
+@@ -112,1 +112,2 @@
+     char *buf = malloc(strlen(input) + 1);
++    if (!ptr) return -1;  /* allocation check */
+@@ -115,1 +116,2 @@
+     token_t *tok = malloc(sizeof(token_t));
++    if (!ptr) return -1;  /* allocation check */
+...
+
+> commit
+xf: committed 503 lines to memory.c
+```
+
+**With sed?** Impossible to scope correctly:
+
+```bash
+# sed has no concept of "inside function parse_input"
+# You'd need to track brace nesting, which sed can't do:
+sed '/parse_input/,/^}/s/malloc/& ; if (!ptr) return -1/' memory.c
+
+# This is wrong—it matches from "parse_input" to the FIRST "}" 
+# which might be an if-statement, not the function end.
+# It also mangles the syntax instead of inserting a new line.
+
+# awk can track braces, but it's still fragile:
+awk '
+  /parse_input.*\{/ { in_func=1; depth=1 }
+  in_func && /\{/ { depth++ }
+  in_func && /\}/ { depth--; if(depth==0) in_func=0 }
+  in_func && /malloc/ { print; print "    if (!ptr) return -1;"; next }
+  { print }
+' memory.c > memory.c.tmp && mv memory.c.tmp memory.c
+
+# 8 lines of awk vs. 3 xf commands. And the awk version breaks on
+# braces in strings, comments, or multi-line expressions.
+```
+
+### Paragraph-Aware Documentation Edits
+
+**Goal**: Find and update specific documentation sections.
+
+```
+$ xf docs/api.md
+xf: loaded docs/api.md (800 lines)
+
+> select paragraphs containing "deprecated"
+xf: 4 range(s), 28 line(s) selected
+     1: | The `old_api()` function is deprecated.
+        | Use `new_api()` instead. This function
+        | will be removed in version 3.0.
+     2: | Note: The deprecated `legacy_mode` flag
+        | should not be used in new code.
+  ... (2 more paragraphs)
+
+> insert "**WARNING: DEPRECATED**" before
+xf: 4 line(s) inserted
+
+> preview
+--- original
++++ modified
+@@ -45,0 +45,1 @@
++**WARNING: DEPRECATED**
+ The `old_api()` function is deprecated.
+ Use `new_api()` instead. This function
+ will be removed in version 3.0.
+...
+
+> commit
+xf: committed 804 lines to docs/api.md
+```
+
+**With sed?** Paragraphs require blank-line detection with context:
+
+```bash
+# Insert before paragraphs containing "deprecated"
+# sed processes lines, not paragraphs. You need awk:
+awk -v RS='\n\n' -v ORS='\n\n' '
+  /deprecated/ { print "**WARNING: DEPRECATED**\n" $0; next }
+  { print }
+' docs/api.md > tmp && mv tmp docs/api.md
+
+# This mostly works, but:
+# - Destroys original blank line patterns
+# - No preview before overwriting
+# - Fragile with varying newline counts
+```
+
+xf treats paragraphs as first-class units—no regex gymnastics required.
+
+### Indentation-Aware Block Operations
+
+**Goal**: Extract deeply nested code blocks for refactoring analysis.
+
+```
+$ xf complex.c
+xf: loaded complex.c (1200 lines)
+
+> select blocks
+xf: 156 range(s), 1180 line(s) selected
+
+# Find blocks with excessive nesting (4+ levels = 32+ spaces with 8-space tabs)
+> refine containing /^[[:space:]]{32,}[^[:space:]]/
+xf: 8 range(s), 95 line(s) selected
+     1: |                                 if (deeply_nested) {
+        |                                     handle_edge_case();
+        |                                 }
+  ... (7 more deeply nested blocks)
+
+# These are refactoring candidates—add TODO markers
+> insert "/* TODO: refactor - excessive nesting */" before
+xf: 8 line(s) inserted
+
+> commit
+xf: committed 1208 lines to complex.c
+```
+
+### Composing Selections for Complex Queries
+
+**Goal**: Find functions that use malloc but don't check the return value.
+
+```
+$ xf src/*.c
+xf: loaded 20 files (8000 lines total)
+
+> select functions containing "malloc" as malloc_funcs
+xf: [malloc_funcs] 45 range(s), 890 line(s) selected
+
+# Keep functions that have malloc but DON'T have null checks
+> refine excluding "if (!ptr)" as unchecked
+xf: [unchecked] 12 range(s), 180 line(s) selected
+
+> refine excluding "if (ptr == NULL)" as truly_unchecked
+xf: [truly_unchecked] 8 range(s), 120 line(s) selected
+     1: | void leak_example() {
+        |     char *p = malloc(100);
+        |     strcpy(p, "data");  // no null check!
+        |     ...
+        | }
+  ... (7 more unsafe functions)
+
+# Flag these for review
+> insert "/* FIXME: malloc return value not checked */" before
+xf: 8 line(s) inserted
+
+> commit
+xf: committed files
+```
+
+**With sed/awk?** This requires semantic understanding:
+
+```bash
+# Find functions containing malloc but NOT containing null checks?
+# sed/awk can't do this—they'd need to:
+# 1. Identify function boundaries (requires brace-matching)
+# 2. Check if "malloc" appears anywhere in the function
+# 3. Check if null-check patterns DON'T appear
+# 4. Only modify functions matching both conditions
+
+# grep can find candidates, but can't scope to functions:
+grep -l "malloc" src/*.c | xargs grep -L "if (!.*)" 
+# Wrong—this checks whole FILES, not individual FUNCTIONS
+
+# A "working" solution requires a real parser or 50+ lines of awk
+# that will still break on edge cases.
+```
+
+xf's selection composition makes this a 4-command operation.
+
+### Reproducible Transformations
+
+**Goal**: Apply the same complex refactoring to multiple projects.
+
+```bash
+# Create a reusable refactoring script
+$ cat > modernize_error_handling.xf << 'EOF'
+# Modernize error handling pattern
+# Replaces: if (err) { return err; }
+# With: if (err) return err;
+
+select functions
+refine containing "if (err)"
+refine containing "return err"
+replace /if \(err\) \{\n[[:space:]]*return err;\n[[:space:]]*\}/ with "if (err) return err;"
+commit
+EOF
+
+# Apply to all C files in project A
+$ xf --batch modernize_error_handling.xf ~/project_a/src/*.c
+
+# Apply to project B
+$ xf --batch modernize_error_handling.xf ~/project_b/src/*.c
+
+# Apply to project C
+$ xf --batch modernize_error_handling.xf ~/project_c/src/*.c
+```
+
+The same transformation, applied consistently across multiple codebases.
 
 ---
 
